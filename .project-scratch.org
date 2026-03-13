@@ -1,0 +1,5 @@
+#+TITLE: Project Scratch
+
+* TODOS
+- [ ] Change legacy names flowpose to PoseOFF
+- [ ] Fix up offline (video) feed of PoseOFF

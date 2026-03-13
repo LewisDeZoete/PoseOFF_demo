@@ -45,6 +45,7 @@ def get_poses(frame, pose_model, threshold=0.2):
 
     poses = rearrange(poses, 'C V M -> (M V) C')
     return poses
+
 def draw_bones(frame, pose, person_num=None):
     frame = frame.copy()
     H,W,C = frame.shape
@@ -134,7 +135,7 @@ def flowpose_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1,
         frame2 (torch.Tensor): Second frame (grey) of shape (H W)
         poses (torch.Tensor): Pose keypoint tensor of shape ((M V) C)
         window_size (int): The size of the window around each pose keypoint. Default is 3.
-        threshold (float): Threshold below which
+        threshold (float): Threshold below which samples are discarded...
         dilation (int): The dilation factor for sampling points around keypoints. Default is 1.
         debug_frame (None/int): Optionally return the frame_number, the frame itself and
             the current state of the flowpose array. Default is None.

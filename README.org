@@ -1,9 +1,10 @@
 #+title: Readme
 
 * PoseOFF Extraction Demo
-This repo contains a simple, live demonstration of the PoseOFF extraction method using the [Lucas-Kanade method](https://cseweb.ucsd.edu/classes/sp02/cse252/lucaskanade81.pdf) of optical flow estimation in combination with [YOLO Pose](https://docs.ultralytics.com/tasks/pose/).
+This repo contains a simple, live demonstration of the PoseOFF extraction method using the [[https://cseweb.ucsd.edu/classes/sp02/cse252/lucaskanade81.pdf][Lucas-Kanade method]] of optical flow estimation in combination with [[https://docs.ultralytics.com/tasks/pose/][YOLO Pose]].
 
-**NOTE**: This demo only shows a visualisation of the extraction method, and does not contain and end-to-end human action anticipation framework.
+
+*NOTE*: This demo only shows a visualisation of the extraction method, and does not contain and end-to-end human action anticipation framework.
 
 ** Installation
 Clone this repo:

@@ -8,9 +8,9 @@ This repo contains a simple, live demonstration of the PoseOFF extraction method
 ** Installation
 Clone this repo:
 
-``` sh
+#+begin_src sh
 git clone https://github.com/LewisdeZ/PoseOFF_demo.git
-```
+#+end_src
 
 Next, create the python environment and install the
 *** UNIX

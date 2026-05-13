@@ -11,27 +11,32 @@ def get_args():
         prog="PoseOFF_feature_demo",
         description="Demonstration of lightweight PoseOFF feature extraction method, using YOLO pose and LK optical flow estimation. \nPRESS Q TO CLOSE WINDOW.",
     )
+    parser.add_argument('--input_type', default='camera',
+                        help="Input type must be in ['camera', 'video', 'frames'].\n"
+                        "if 'camera', -c --camera_number must be set to an appropriate number (default 0).\n"
+                        "If 'video', -i --input_path must be set to a video path (e.g. '.mp4').\n"
+                        "If 'frames', -i --input_path must be set to a folder containing video frames.\n"
+                        "(default: 'camera')")
     parser.add_argument('-t', '--threshold', default=0.2,
                         help="Confidence threshold below which pose keypoints will be discarded, between 0.0 and 1.0 (default: 0.2).")
     parser.add_argument('-w', '--window_size', default=5,
                         help="Width of square optical flow sampling window - must be an odd number - for example window_size=5 would result in a 5*5 pixel window (default: 5)")
     parser.add_argument('-d', '--dilation', default=3,
                         help="Dilation factor of sampling window, a higher dilation means a more spread sampling window (default: 3)")
-    parser.add_argument('-m', '--mag_threshold', default=1000,
-                        help="Optical flow magnitude threshold, limiting how large flow arrows will be (default: 1000)")
-    parser.add_argument('--input_type', default='camera',
-                        help="Input type must be in ['camera', 'video', 'frames'].\n"
-                        "if 'camera', -c --camera_number must be set to an appropriate number (default 0).\n"
-                        "If 'video', -i --input_path must be set to a video path (e.g. '.mp4').\n"
-                        "If 'frames', -i --input_path must be set to a folder containing video frames.")
+    parser.add_argument('-m', '--mag_threshold', default=100,
+                        help="Optical flow magnitude threshold, limiting how large flow arrows will be (default: 100)")
     parser.add_argument('-c', '--camera_number', default=0,
                         help="Camera number to stream from, this may require some trial and error... (default: 0)")
     parser.add_argument('-i', '--input_path',
-                        help="If not using live webcam, pass the input path for videos of frames!")
-    parser.add_argument('-x', '--first_x', default=0,
-                        help="Assumes -v (video path) is passed, dictates how many frames to move ahead to begin calculating diference images.")
+                        help="If not using live webcam, pass the input path for videos or frames.")
+    parser.add_argument('-s', '--skip_frames', default=0,
+                        help="Number of video frames in between each PoseOFF extimation - effectively controls framerate. A higher number means more frames are skipped (default: 0)")
     parser.add_argument('-o', '--only_middle', action='store_true',
                         help="If passed, only draw the middle optical flow arrow on each pose keypoint - store_true (default: False)")
+    parser.add_argument('-r', '--resize', default=1,
+                        help="Amount to resize the output video by (default: 1)")
+    parser.add_argument('--write_video', action='store_true',
+                        help="If passed, writes a video to the 'output/' folder")
     args = parser.parse_args()
 
     # Checking input values...
@@ -48,7 +53,8 @@ def get_args():
         except ValueError:
             print("Camera number must be an integer")
     elif args.input_type == 'video':
-        assert osp.isfile(args.input_path), "For input_type = video, input_path must be a file."
+        assert osp.isfile(args.input_path), "For input_type = video, input_path must be a path to a file."
+        assert float(args.resize) > 0, "The resize argument must be a non-zero integer."
         print(f"Running demo for video: {args.input_type}")
     elif args.input_type == 'frames':
         assert osp.isdir(args.input_path), "For input_type = frames, input_path must be a folder."
@@ -61,13 +67,14 @@ def get_args():
     args.dilation = int(args.dilation)
     args.mag_threshold = int(args.mag_threshold)
     args.camera_number = int(args.camera_number)
+    args.resize = float(args.resize)
 
-    # Ensure if first_x is passed, it's a non-zero int
-    if args.first_x:
+    # Ensure if skip_frames is passed, it's a non-zero int
+    if args.skip_frames:
         try:
-            assert int(args.first_x) > 0, "First_x must be greater than 0..."
+            assert int(args.skip_frames) > 0, "skip_frames must be greater than 0..."
         except ValueError:
-            print("Please put in an integer for '--first_x'")
+            print("Please put in an integer for '--skip_frames'")
 
     return args
 
@@ -86,7 +93,7 @@ class Main:
             self.frames()
     def camera(self):
         print("\n ------- PRESS `Q` TO QUIT ------ \n")
-        cap = cv2.VideoCapture(args.camera_number)
+        cap = cv2.VideoCapture(self.args.camera_number)
         ret, img1 = cap.read()
         img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         im_height, im_width = img1_grey.shape
@@ -97,18 +104,18 @@ class Main:
                 print("Can't open frame")
                 break
             # Get the poses using YOLO
-            poses = get_poses(img2, pose_model, threshold=args.threshold)
+            poses = get_poses(img2, pose_model, threshold=self.args.threshold)
 
             # Convert the frame to grey to prep for LK flow estimation
             img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
             # Calculate PoseOFF windows using LK flow
-            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
+            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
 
             # Drawing utilities
             img2 = draw_bones(img2, poses)
             # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-            img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold)
+            img2 = draw_flow_windows(img2, p0, p1, only_middle=self.args.only_middle, window_size=self.args.window_size, mag_threshold=self.args.mag_threshold)
 
             # Resize the input image...
             img2 = cv2.resize(img2, (im_width*2, im_height*2))
@@ -126,73 +133,71 @@ class Main:
 
     def video(self):
         print("\n ------- PRESS `Q` TO QUIT ------ \n")
-        cap = cv2.VideoCapture(args.video_path)
+        cap = cv2.VideoCapture(self.args.input_path)
         ret, img1 = cap.read()
         img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         im_height, im_width = img1_grey.shape
 
-        # first_x dictates how many frames to move ahead to get difference images
-        if int(args.first_x) > 0:
-            for i in range(int(args.first_x)):
-                ret, img2 = cap.read()
+        # If write_video==True, write video with the same name as the input
+        if self.args.write_video:
+            os.makedirs("output", exist_ok=True) # Create output folder
+            video_filename = osp.join(
+                './output',
+                osp.basename(self.args.input_path).split('.')[0] + ".avi"
+            )
+            FPS = cap.get(cv2.CAP_PROP_FPS)
+            W, H = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            out = cv2.VideoWriter(video_filename, cv2.VideoWriter_fourcc(*'XVID'), FPS, (W, H))
+            print(f"Writing video to {video_filename}")
 
-            # Convert second image to grey...
-            img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+        while cap.isOpened():
+            # Skip_frames frames if passed as argument
+            if int(self.args.skip_frames) > 0:
+                for i in range(int(self.args.skip_frames)):
+                    ret, img2 = cap.read()
+                    if not ret:
+                        print("Ran out of frames...")
+                        break
 
+            # Read the next frame (quit if end of video)
+            ret, img2 = cap.read()
+            if not ret:
+                print("Can't open frame")
+                break
             # Get the poses using YOLO
-            poses = get_poses(img2, pose_model, threshold=args.threshold)
+            poses = get_poses(img2, pose_model, threshold=self.args.threshold)
+
+            # Convert the frame to grey to prep for LK flow estimation
+            img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
             # Calculate PoseOFF windows using LK flow
-            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
+            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
 
             # Drawing utilities
             img2 = draw_bones(img2, poses)
             # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-            img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold)
+            img2 = draw_flow_windows(img2, p0, p1, only_middle=self.args.only_middle, window_size=self.args.window_size, mag_threshold=self.args.mag_threshold)
 
-            # Resize the input image...
-            img2 = cv2.resize(img2, (im_width*2, im_height*2))
-
-            # Show the frame
-            cv2.imshow('Frame', img2)
-            if cv2.waitKey(1) == ord('q'):
-                quit()
-
-            # Set the current frame to the old frame before retrieving a new one...
-            img1_grey = img2_grey.copy()
-
-        # If first_x isn't passed, just show video
-        if not args.first_x:
-            while cap.isOpened():
-                ret, img2 = cap.read()
-                if not ret:
-                    print("Can't open frame")
-                    break
-                # Get the poses using YOLO
-                poses = get_poses(img2, pose_model, threshold=args.threshold)
-
-                # Convert the frame to grey to prep for LK flow estimation
-                img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-                # Calculate PoseOFF windows using LK flow
-                poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
-
-                # Drawing utilities
-                img2 = draw_bones(img2, poses)
-                # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-                img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold)
-
+            # If write_video, don't show the frame, only write it!
+            if self.args.write_video:
+                out.write(img2)
+            else:
                 # Resize the input image...
-                img2 = cv2.resize(img2, (im_width*2, im_height*2))
+                img2 = cv2.resize(img2, (int(im_width * self.args.resize), int(im_height * self.args.resize)))
 
                 # Show the frame
                 cv2.imshow('Frame', img2)
                 if cv2.waitKey(1) == ord('q'):
-                    cv2.imwrite("TMP.png", img2)
+                    print("Exiting video playback")
                     break
 
-                # Set the current frame to the old frame before retrieving a new one...
-                img1_grey = img2_grey.copy()
+            # Set the current frame to the old frame before retrieving a new one...
+            img1_grey = img2_grey.copy()
+
+        cap.release()
+        if self.args.write_video:
+            out.release()
+
     def frames(self):
         pass
 
@@ -251,9 +256,9 @@ def video(args, pose_model):
     img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
     im_height, im_width = img1_grey.shape
 
-    # first_x dictates how many frames to move ahead to get difference images
-    if int(args.first_x) > 0:
-        for i in range(int(args.first_x)):
+    # skip_frames dictates how many frames to move ahead to get difference images
+    if int(args.skip_frames) > 0:
+        for i in range(int(args.skip_frames)):
             ret, img2 = cap.read()
 
         # Convert second image to grey...
@@ -281,8 +286,8 @@ def video(args, pose_model):
         # Set the current frame to the old frame before retrieving a new one...
         img1_grey = img2_grey.copy()
 
-    # If first_x isn't passed, just show video
-    if not args.first_x:
+    # If skip_frames isn't passed, just show video
+    if not args.skip_frames:
         while cap.isOpened():
             ret, img2 = cap.read()
             if not ret:
@@ -393,6 +398,7 @@ if __name__ == '__main__':
     pose_model = YOLO("yolo11m-pose.pt")
 
     Main(args, pose_model)
+    cv2.destroyAllWindows()
     # # If a video path is passed, use the offline method
     # if args.video_path is not None:
     #     video(args, pose_model=pose_model)

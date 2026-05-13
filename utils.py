@@ -123,7 +123,7 @@ def draw_skel(frame, pose, person_num=None, skip_points=[], debug=False):  # Pos
 
 
 def flowpose_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, debug_frame=None):
-    '''Using the LK method of optical flow calculation...
+    """Using the LK method of optical flow calculation...
     CV implementation: https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
     goodFeaturesToTrack returns list of length `max_corners`, of shape: [max_corners, 1, 2].
     For each corner, you can simply ravel to flatten the array and get (x,y) positions.
@@ -143,7 +143,7 @@ def flowpose_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1,
     Returns:
         flowpose_aray: Array containing only the flow windows of shape:
             (C*window_size**2, total_keypoints)
-    '''
+    """
     lk_params = {
         "winSize": (15, 15),
         "maxLevel": 2,

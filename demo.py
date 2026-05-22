@@ -104,13 +104,13 @@ class Main:
                 print("Can't open frame")
                 break
             # Get the poses using YOLO
-            poses = get_poses(img2, pose_model, threshold=self.args.threshold)
+            poses = get_poses(img2, self.pose_model, threshold=self.args.threshold)
 
             # Convert the frame to grey to prep for LK flow estimation
             img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
             # Calculate PoseOFF windows using LK flow
-            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
+            poseoff, p0, p1 = poseoff_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
 
             # Drawing utilities
             img2 = draw_bones(img2, poses)
@@ -165,13 +165,13 @@ class Main:
                 print("Can't open frame")
                 break
             # Get the poses using YOLO
-            poses = get_poses(img2, pose_model, threshold=self.args.threshold)
+            poses = get_poses(img2, self.pose_model, threshold=self.args.threshold)
 
             # Convert the frame to grey to prep for LK flow estimation
             img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
             # Calculate PoseOFF windows using LK flow
-            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
+            poseoff, p0, p1 = poseoff_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
 
             # Drawing utilities
             img2 = draw_bones(img2, poses)
@@ -198,160 +198,41 @@ class Main:
         if self.args.write_video:
             out.release()
 
-    def frames(self):
-        pass
+    def frames(self, class_files, save_dir):
+        '''TODO: Test this method!'''
+        for class_name, files in class_files.items():
+            for i in range(len(files)-1):
+                print(f"{files[i]}\n{files[i+1]}\n\n")
+                img1 = cv2.imread(files[i])
+                img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+                img2 = cv2.imread(files[i+1])
+                img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+                # Get the poses using YOLO
+                poses = get_poses(img2, self.pose_model, threshold=self.args.threshold)
+                # Calculate PoseOFF windows using LK flow
+                poseoff, p0, p1 = poseoff_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
 
-def main(args, pose_model):
-    '''Main loop for PoseOFF feature extraction and visualisation.
+                # Drawing utilities
+                img2 = draw_bones(img2, poses)
+                # img2 = np.zeros((1080, 1920, 4))
+                # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
+                img2 = draw_flow_windows(img2, p0, p1, only_middle=self.args.only_middle, window_size=self.args.window_size, mag_threshold=self.args.mag_threshold, mag_red=True)
 
-    Args:
-        args (argparse.Namespace): argparse object containing variables for threshold, window_size, dilation, camera_number and optional only_middle argument.
-        pose_model (ultralytics.models.yolo.model.YOLO): Initialised pre-trained YOLO Pose model.
-    '''
-    print("\n ------- PRESS `Q` TO QUIT ------ \n")
-    cap = cv2.VideoCapture(args.camera_number)
-    ret, img1 = cap.read()
-    img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    im_height, im_width = img1_grey.shape
-
-    while cap.isOpened():
-        ret, img2 = cap.read()
-        if not ret:
-            print("Can't open frame")
-            break
-        # Get the poses using YOLO
-        poses = get_poses(img2, pose_model, threshold=args.threshold)
-
-        # Convert the frame to grey to prep for LK flow estimation
-        img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-        # Calculate PoseOFF windows using LK flow
-        poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
-
-        # Drawing utilities
-        img2 = draw_bones(img2, poses)
-        # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-        img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold)
-
-        # Resize the input image...
-        img2 = cv2.resize(img2, (im_width*2, im_height*2))
-
-        # Show the frame
-        cv2.imshow('Frame', img2)
-        if cv2.waitKey(1) == ord('q'):
-            break
-
-        # Set the current frame to the old frame before retrieving a new one...
-        img1_grey = img2_grey.copy()
-    # Cleanup
-    cap.release()
-    cv2.destroyAllWindows()
+                save_name = files[i].split('\\')[-1].split('.')[0] + '-' + \
+                files[i+1].split('-')[-1].split('.')[0].split('f')[-1] + '.png'
+                cv2.imwrite(osp.join(save_dir, save_name), img2)
+                # cv2.imshow("Frame", img2)
+                # keypress = cv2.waitKey(0)
+                # if keypress == ord('q'):
+                #     quit()
+                # elif keypress == ord('s'):
+                #     # Incredibly cursed...
+                #     save_name = files[i].split('\\')[-1].split('.')[0] + '-' + \
+                #     files[i+1].split('-')[-1].split('.')[0].split('f')[-1] + '.png'
+                #     print(f"SAVING: {save_name}")
+                #     cv2.imwrite(osp.join(save_dir, save_name), img2)
 
 
-def video(args, pose_model):
-    # TODO: fold this in to main...
-    # Get the first frame
-    cap = cv2.VideoCapture(args.video_path)
-    ret, img1 = cap.read()
-    img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    im_height, im_width = img1_grey.shape
-
-    # skip_frames dictates how many frames to move ahead to get difference images
-    if int(args.skip_frames) > 0:
-        for i in range(int(args.skip_frames)):
-            ret, img2 = cap.read()
-
-        # Convert second image to grey...
-        img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-        # Get the poses using YOLO
-        poses = get_poses(img2, pose_model, threshold=args.threshold)
-
-        # Calculate PoseOFF windows using LK flow
-        poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
-
-        # Drawing utilities
-        img2 = draw_bones(img2, poses)
-        # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-        img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold)
-
-        # Resize the input image...
-        img2 = cv2.resize(img2, (im_width*2, im_height*2))
-
-        # Show the frame
-        cv2.imshow('Frame', img2)
-        if cv2.waitKey(1) == ord('q'):
-            quit()
-
-        # Set the current frame to the old frame before retrieving a new one...
-        img1_grey = img2_grey.copy()
-
-    # If skip_frames isn't passed, just show video
-    if not args.skip_frames:
-        while cap.isOpened():
-            ret, img2 = cap.read()
-            if not ret:
-                print("Can't open frame")
-                break
-            # Get the poses using YOLO
-            poses = get_poses(img2, pose_model, threshold=args.threshold)
-
-            # Convert the frame to grey to prep for LK flow estimation
-            img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-            # Calculate PoseOFF windows using LK flow
-            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
-
-            # Drawing utilities
-            img2 = draw_bones(img2, poses)
-            # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-            img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold)
-
-            # Resize the input image...
-            img2 = cv2.resize(img2, (im_width*2, im_height*2))
-
-            # Show the frame
-            cv2.imshow('Frame', img2)
-            if cv2.waitKey(1) == ord('q'):
-                cv2.imwrite("TMP.png", img2)
-                break
-
-            # Set the current frame to the old frame before retrieving a new one...
-            img1_grey = img2_grey.copy()
-
-
-def frames(args, pose_model, class_files, save_dir):
-    for class_name, files in class_files.items():
-        for i in range(len(files)-1):
-            print(f"{files[i]}\n{files[i+1]}\n\n")
-            img1 = cv2.imread(files[i])
-            img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-            img2 = cv2.imread(files[i+1])
-            img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-            # Get the poses using YOLO
-            poses = get_poses(img2, pose_model, threshold=args.threshold)
-            # Calculate PoseOFF windows using LK flow
-            poseoff, p0, p1 = flowpose_lk(img1_grey, img2_grey, poses, window_size=args.window_size, dilation=args.dilation)
-
-            # Drawing utilities
-            img2 = draw_bones(img2, poses)
-            # img2 = np.zeros((1080, 1920, 4))
-            # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-            img2 = draw_flow_windows(img2, p0, p1, only_middle=args.only_middle, window_size=args.window_size, mag_threshold=args.mag_threshold, mag_red=True)
-
-            save_name = files[i].split('\\')[-1].split('.')[0] + '-' + \
-            files[i+1].split('-')[-1].split('.')[0].split('f')[-1] + '.png'
-            cv2.imwrite(osp.join(save_dir, save_name), img2)
-            # cv2.imshow("Frame", img2)
-            # keypress = cv2.waitKey(0)
-            # if keypress == ord('q'):
-            #     quit()
-            # elif keypress == ord('s'):
-            #     # Incredibly cursed...
-            #     save_name = files[i].split('\\')[-1].split('.')[0] + '-' + \
-            #     files[i+1].split('-')[-1].split('.')[0].split('f')[-1] + '.png'
-            #     print(f"SAVING: {save_name}")
-            #     cv2.imwrite(osp.join(save_dir, save_name), img2)
 
 
 def pose_frames(args, pose_model, class_files, save_dir):

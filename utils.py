@@ -6,13 +6,32 @@ import torch
 import numpy as np
 import cv2
 
+def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
+    """
+    Classical 5-point stencil central difference.
+    Fourth-order accurate: O(Δt⁴).
+
+    Kernel:  (-1/12, 8/12, 0, -8/12, 1/12)  applied to [I_{-2}, I_{-1}, I_0, I_1, I_2]
+    Assumes the middle frame (index 2) is the current frame.
+    Requires exactly 5 frames.
+    """
+    assert len(frames) == 5, "5-point stencil requires exactly 5 frames"
+    f = [f.astype(np.float32) for f in frames]
+    # Numerator: -f[-2] + 8*f[-1] - 8*f[1] + f[2]  (normalised by 12)
+    It = (-f[0] + 8*f[1] - 8*f[3] + f[4]) / 12.0
+    return It
+
 
 def get_norm_flows(img1, img2, alpha=1):
+    '''Get the normal flow calculated between two images.'''
+    # Gaussian blurring pre-sobel
+    img1 = cv2.GaussianBlur(img1,(5,5),0)
+    img2 = cv2.GaussianBlur(img2,(5,5),0)
     # Calculate spatial gradients
     Ix = cv2.Sobel(img1, cv2.CV_64F, 1, 0, ksize=5)
     Iy = cv2.Sobel(img1, cv2.CV_64F, 0, 1, ksize=5)
 
-    # Temporal gradient
+    # TODO: Implement temporal gradient calculations here
     It = img2.astype(float) - img1.astype(float)
 
     # Normal flow vectors
@@ -122,13 +141,13 @@ def draw_skel(frame, pose, person_num=None, skip_points=[], debug=False):  # Pos
 
 
 
-def flowpose_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, debug_frame=None):
+def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, debug_frame=None):
     """Using the LK method of optical flow calculation...
     CV implementation: https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
     goodFeaturesToTrack returns list of length `max_corners`, of shape: [max_corners, 1, 2].
     For each corner, you can simply ravel to flatten the array and get (x,y) positions.
     NOTE: The raw poses (from denoised_skes_data) are of shape: (T, M, V, C)
-        In the get_flowpose_samples.py loop, we reshape (poses = poses.transpose(3, 0, 2, 1)) -> (C, T, V, M)
+        In the get_poseoff_samples.py loop, we reshape (poses = poses.transpose(3, 0, 2, 1)) -> (C, T, V, M)
 
     Args:
         frame1 (torch.Tensor): First frame (grey) of shape (H W)
@@ -138,10 +157,10 @@ def flowpose_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1,
         threshold (float): Threshold below which samples are discarded...
         dilation (int): The dilation factor for sampling points around keypoints. Default is 1.
         debug_frame (None/int): Optionally return the frame_number, the frame itself and
-            the current state of the flowpose array. Default is None.
+            the current state of the poseoff array. Default is None.
 
     Returns:
-        flowpose_aray: Array containing only the flow windows of shape:
+        poseoff_aray: Array containing only the flow windows of shape:
             (C*window_size**2, total_keypoints)
     """
     lk_params = {

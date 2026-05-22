@@ -1,5 +1,3 @@
-#+title: Readme
-
 * PoseOFF Extraction Demo
 This repo contains a simple, live demonstration of the PoseOFF extraction method using the [[https://cseweb.ucsd.edu/classes/sp02/cse252/lucaskanade81.pdf][Lucas-Kanade method]] of optical flow estimation in combination with [[https://docs.ultralytics.com/tasks/pose/][YOLO Pose]].
 
@@ -10,7 +8,7 @@ This repo contains a simple, live demonstration of the PoseOFF extraction method
 Clone this repo:
 
 #+begin_src sh
-git clone https://github.com/LewisdeZ/PoseOFF_demo.git
+git clone https://github.com/LewisDeZoete/PoseOFF_demo.git
 #+end_src
 
 Next, create the python environment and install the
@@ -35,7 +33,6 @@ python -m venv ./env
 python -m pip install -r requirements.txt
 #+end_src
 
-
 ** Usage
 Ensure that the virtual environment is active (=source env/bin/activate= for unix or =.\env\Scripts\Activate.ps1= for Windows).
 
@@ -45,7 +42,7 @@ Run the demo using default settings, simply use:
 python demo.py
 #+end_src
 
-***Press `q` to quit the demo.***
+*Press `q` to quit the demo.*
 
 For help on the available arguments, use:
 
@@ -54,18 +51,19 @@ python demo.py -h
 #+end_src
 
 Optional arguments are as follows:
-| Argument flag       | Argument description                                                                                                                              |
-|---------------------+---------------------------------------------------------------------------------------------------------------------------------------------------|
-| -t, --threshold     | Confidence threshold below which pose keypoints will be discarded, between 0.0 and 1.0 (default 0.2).                                             |
-| -w, --window_size   | Width of square optical flow sampling window - must be an odd number - for example window_size=5 would result in a 5*5 pixel window (default: 5). |
-| -d, --dilation      | Dilation factor of sampling window, a higher dilation means a more spread sampling window (default: 3).                                           |
-| -m, --mag_threshold | Optical flow magnitude threshold, limiting how large flow arrows will be (default: 1000).                                                         |
-| --input_type        | Input type must be in ['camera', 'video', 'frames'].                                                                                              |
-|                     | if 'camera', -c --camera_number must be set to an appropriate number (default 0).                                                                 |
-|                     | If 'video', -i --input_path must be set to a video path (e.g. '.mp4').                                                                            |
-|                     | If 'frames', -i --input_path must be set to a folder containing video frames.                                                                     |
-| -c, --camera_number | Camera number to stream from, this may require some trial and error... (default: 0).                                                              |
-| -i, --input_path    | If not using live webcam, pass the input path for videos of frames!                                                                               |
-| -x, --first_x       | Assumes -v (video path) is passed, dictates how many frames to move ahead to begin calculating diference images.                                  |
-| -o, --only_middle   | If passed, only draw the middle optical flow arrow on each pose keypoint - store_true (default: False).                                           |
-|                     |                                                                                                                                                   |
+| Argument flag       | Argument description                                                                                                                                   |
+|---------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| --input_type        | Input type must be in ['camera', 'video', 'frames'].                                                                                                   |
+|                     | if 'camera', -c --camera_number must be set to an appropriate number (default 0).                                                                      |
+|                     | If 'video', -i --input_path must be set to a video path (e.g. '.mp4').                                                                                 |
+|                     | If 'frames', -i --input_path must be set to a folder containing video frames.                                                                          |
+| -t, --threshold     | Confidence threshold below which pose keypoints will be discarded, between 0.0 and 1.0 (default 0.2).                                                  |
+| -w, --window_size   | Width of square optical flow sampling window - must be an odd number - for example window_size=5 would result in a 5*5 pixel window (default: 5).      |
+| -d, --dilation      | Dilation factor of sampling window, a higher dilation means a more spread sampling window (default: 3).                                                |
+| -m, --mag_threshold | Optical flow magnitude threshold, limiting how large flow arrows will be (default: 1000).                                                              |
+| -c, --camera_number | Camera number to stream from, this may require some trial and error... (default: 0).                                                                   |
+| -i, --input_path    | If not using live webcam, pass the input path for videos of frames!                                                                                    |
+| -s, --skip_frames   | Number of video frames in between each PoseOFF extimation - effectively controls framerate. A higher number means more frames are skipped (default: 0) |
+| -o, --only_middle   | If passed, only draw the middle optical flow arrow on each pose keypoint - store_true (default: False).                                                |
+| -r, --resize        | Amount to resize the output video by (default: 1)                                                                                                      |
+| --write_video       | If passed, writes a video to the 'output/' folder                                                                                                      |

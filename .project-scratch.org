@@ -1,5 +1,100 @@
 #+TITLE: Project Scratch
 
-* TODOS
-- [ ] Change legacy names flowpose to PoseOFF
+* TODOs
+** Manual
+*** General
 - [ ] Fix up offline (video) feed of PoseOFF
+** Scanner
+Run scanner by moving cursor inside codeblock, then executing code =C-c C-c=
+#+NAME: scan-todos
+#+BEGIN_SRC emacs-lisp :results none
+(require 'cl-lib)
+(let* ((root (file-name-directory (buffer-file-name)))
+       (default-directory root)
+       (raw (shell-command-to-string
+             "git grep -n 'TODO:' -- ':!./logs/*' ':!*.pt' ':!*.npz' ':!*.npy' ':!*.pkl'"))
+       (output ""))
+  (dolist (line (split-string raw "\n" t))
+    (when (string-match "^\\([^:]+\\):\\([0-9]+\\):.*TODO:[[:space:]]*\\(.*\\)$" line)
+      (let* ((rel  (match-string 1 line))
+             (lnum (string-to-number (match-string 2 line)))
+             (text (string-trim (match-string 3 line)))
+             (header (format "*** ~%s~\n" rel)))
+        (unless (string-match-p (regexp-quote header) output)
+          (setq output (concat output header)))
+        (setq output (concat output
+                             (format "    - Line %d: %s [[file:%s::%d][→]]\n"
+                                     lnum text rel lnum))))))
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^\\*\\* Items$" nil t)
+      (forward-line 1)
+      (let ((start (point))
+            (end (save-excursion
+                   (if (re-search-forward "^\\* " nil t)
+                       (line-beginning-position)
+                     (point-max)))))
+        (delete-region start end)
+        (insert "\n" (if (string-empty-p output) "   /No TODOs found./\n" output) "\n")))))
+#+END_SRC
+
+** Items
+* Python testing
+#+begin_src python :results output
+print("HELLO!")
+#+end_src
+
+#+RESULTS:
+
+* Keybinds
+** Navigation
+*** ] ] - org-next-visible-heading
+Next heading
+*** [ [ - org-previous-visible-heading
+Previous heading
+*** ] h - org-forward-heading-same-level
+Next heading same level
+*** [ h - org-backward-heading-same-level
+Previous heading same level
+*** z u - outline-up-heading
+Backward to higher level heading
+*** C-c C-j - org-goto
+Jump to different place without changing the current outline visibility
+** Visualising
+*** z c - +org/close-fold
+Folds current heading
+*** z M - +org/close-all-folds
+Folds all visual headings
+** Correcting
+*** ] s - +spell/next-error
+Next ispell error
+*** [ s - +spell/previous-error
+Previous ispell error
+** Toggling
+*** SPC m x - org-toggle-checkbox
+Toggle checkbox, from [ ] to [X]
+*** SPC u SPC u SPC m x - [double prefix] org-toggle-checkbox
+Set checkbox to "[-]"
+
+* Searcher
+Change ~search_string~ value to search for a particular string.
+        e.g. ~search_string="flowpose"~
+Change ~excluded_dirs~ to exclude particular directories from grep search.
+        e.g. ~excluded_dirs=(":!./logs/*" ":!./env/*")~
+#+begin_src bash :results output
+## ----------------------
+search_string="grey"
+excluded_dirs=(":!./logs/*" ":!./env/*")
+## ----------------------
+
+# Search for the file names
+git grep -l $search_string -- ${excluded_dirs[@]}
+# Provide a file count
+echo -e "\nThere are $(git grep -l $search_string -- ${excluded_dirs[@]} | wc -l) files containing '${search_string}'"
+#+end_src
+
+#+RESULTS:
+: demo.py
+: utils.py
+:
+: There are 2 files containing 'grey'

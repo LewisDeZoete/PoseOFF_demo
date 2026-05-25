@@ -40,11 +40,42 @@ Run scanner by moving cursor inside codeblock, then executing code =C-c C-c=
 
 ** Items
 * Python testing
-#+begin_src python :results output
-print("HELLO!")
+#+begin_src emacs-lisp
+(setq org-babel-python-command "./env/bin/python3")
 #+end_src
 
 #+RESULTS:
+: ./env/bin/python3
+
+#+begin_src python :results output
+import numpy as np
+
+frame2_path = "./It_2frame.npy"
+frame5_path = "./It_5frame.npy"
+
+frame2 = np.load(frame2_path)
+frame5 = np.load(frame5_path)
+
+print(f"2 frame Max:{ frame2.max() }")
+print(f"2 frame Min: { frame2.min() }")
+print(f"2 frame mean: { frame2.mean() }")
+print(f"2 frame median: { np.median(frame2) }")
+
+print(f"5 frame Max:{ frame5.max() }")
+print(f"5 frame Min: { frame5.min() }")
+print(f"5 frame mean: { frame5.mean() }")
+print(f"5 frame median: { np.median(frame5) }")
+#+end_src
+
+#+RESULTS:
+: 2 frame Max:132.0
+: 2 frame Min: -169.0
+: 2 frame mean: -0.75970703125
+: 2 frame median: 0.0
+: 5 frame Max:127.91666412353516
+: 5 frame Min: -128.0
+: 5 frame mean: 0.8225735425949097
+: 5 frame median: 0.0833333358168602
 
 * Keybinds
 ** Navigation

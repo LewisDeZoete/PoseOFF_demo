@@ -5,16 +5,16 @@ from ultralytics import YOLO
 import torch
 import numpy as np
 import cv2
+from collections import deque
 
 def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
-    """
-    Classical 5-point stencil central difference.
+    '''Classical 5-point stencil central difference.
     Fourth-order accurate: O(Δt⁴).
 
     Kernel:  (-1/12, 8/12, 0, -8/12, 1/12)  applied to [I_{-2}, I_{-1}, I_0, I_1, I_2]
     Assumes the middle frame (index 2) is the current frame.
     Requires exactly 5 frames.
-    """
+    '''
     assert len(frames) == 5, "5-point stencil requires exactly 5 frames"
     f = [f.astype(np.float32) for f in frames]
     # Numerator: -f[-2] + 8*f[-1] - 8*f[1] + f[2]  (normalised by 12)
@@ -23,22 +23,105 @@ def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
 
 
 def get_norm_flows(img1, img2, alpha=1):
-    '''Get the normal flow calculated between two images.'''
+    '''Get the normal flow calculated between two images.
+
+    Returns:
+        norm_flow (array): array of normal flows of shape (H, W, 2)
+    '''
     # Gaussian blurring pre-sobel
     img1 = cv2.GaussianBlur(img1,(5,5),0)
     img2 = cv2.GaussianBlur(img2,(5,5),0)
     # Calculate spatial gradients
-    Ix = cv2.Sobel(img1, cv2.CV_64F, 1, 0, ksize=5)
-    Iy = cv2.Sobel(img1, cv2.CV_64F, 0, 1, ksize=5)
+    Ix = cv2.Sobel(img2, cv2.CV_64F, 1, 0, ksize=5)
+    Iy = cv2.Sobel(img2, cv2.CV_64F, 0, 1, ksize=5)
 
     # TODO: Implement temporal gradient calculations here
     It = img2.astype(float) - img1.astype(float)
 
     # Normal flow vectors
     # (must add small factor in demoninator to avoid div by zero error)
-    norm_flow = -It / (alpha * (np.sqrt(Ix**2 + Iy**2) + 1e-6))
+    flow_mags = -It / (alpha * (np.sqrt(Ix**2 + Iy**2) + 1e-6))
+
+    norm_flow = np.stack([flow_mags*Ix, flow_mags*Iy], axis=-1)
 
     return norm_flow
+
+
+def spatial_gradients(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    img = frame.astype(np.float32)
+    Ix = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=5)
+    Iy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=5)
+    return Ix, Iy
+
+def compute_normal_flow(
+    Ix: np.ndarray,
+    Iy: np.ndarray,
+    It: np.ndarray,
+    grad_threshold: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute the normal flow (u_n, v_n) at each pixel.
+
+    The normal flow vector at a pixel is:
+
+        [u_n, v_n] = -I_t / (Ix² + Iy²)  *  [Ix, Iy]
+
+    Pixels where |∇I| is below grad_threshold are masked out (flat regions
+    where the aperture problem makes normal flow meaningless).
+
+    Parameters
+    ----------
+    Ix, Iy  : spatial gradients (H, W)
+    It      : temporal gradient (H, W)
+    grad_threshold : minimum gradient magnitude to trust the estimate
+
+    Returns
+    -------
+    u_n, v_n : normal flow components (H, W), NaN where masked
+    mask     : boolean array, True where flow is valid
+    """
+    grad_sq = Ix**2 + Iy**2                        # |∇I|²
+    mask = grad_sq > grad_threshold**2              # valid edge pixels
+
+    # Scalar normal speed: s = -I_t / |∇I|²
+    s = np.where(mask, -It / (grad_sq + 1e-8), 0.0)
+
+    u_n = s * Ix    # x-component
+    v_n = s * Iy    # y-component
+
+    u_n[~mask] = np.nan
+    v_n[~mask] = np.nan
+
+    return u_n, v_n, mask
+
+class NormalFlowEstimator:
+    def __init__(
+            self,
+            buffer_size: int = 5,
+            grad_threshold: float = 1.0
+    ):
+        self.buffer_size = buffer_size
+        self.grad_threshold = grad_threshold
+        self._buffer: deque[np.ndarray] = deque(maxlen=buffer_size)
+
+    def push(self, frame):
+        if frame.ndim == 3:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        self._buffer.append(frame.astype(np.float32))
+        if len(self._buffer) < self.buffer_size:
+            return None # still warming up...
+        frames = list(self._buffer)
+        It = temporal_gradient_5point(frames)
+        ref_frame = frames[2]
+        Ix, Iy = spatial_gradients(ref_frame)
+
+        u_n, v_n, mask = compute_normal_flow(Ix, Iy, It, self.grad_threshold)
+
+        norm_flow = np.stack([u_n, v_n], axis=-1)
+        norm_flow = np.where(np.stack([mask, mask], -1), norm_flow, 0.0)
+
+        return norm_flow
 
 
 def get_poses(frame, pose_model, threshold=0.2):
@@ -64,6 +147,7 @@ def get_poses(frame, pose_model, threshold=0.2):
 
     poses = rearrange(poses, 'C V M -> (M V) C')
     return poses
+
 
 def draw_bones(frame, pose, person_num=None):
     frame = frame.copy()
@@ -265,3 +349,44 @@ def draw_flow_windows(frame, p0, p1, only_middle=False, window_size=3, mag_thres
         end = p1[point_num].ravel()
         frame = cv2.arrowedLine(frame, start.astype(int), end.astype(int), arrow_color, 1, tipLength=0.8)
     return frame
+
+
+def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickness=1):
+    '''Draw optical flow vectors as arrows on an image.
+
+    Args:
+        frame (np.array): BGR image (H x W x 3) to draw on (will be copied).
+        flow (np.array): Optical flow array (H x W x 2).
+        step (int): Grid spacing in pixels — controls how many arrows are drawn.
+        scale (float): Multiplier for arrow length (useful if flow magnitudes are tiny/huge).
+        color (tuple[int]): Arrow color as (B, G, R).
+        thickness (int): Arrow line thickness in pixels.
+
+    Returns:
+        A copy of the image with arrows drawn on it.
+    '''
+    if frame.ndim == 2:
+        out = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    else:
+        out = frame.copy()
+
+    h, w = out.shape[:2]
+
+    # Build a regular grid of sample points
+    xs = np.arange(step // 2, w, step)
+    ys = np.arange(step // 2, h, step)
+    xv, yv = np.meshgrid(xs, ys)          # both shape: (len(ys), len(xs))
+
+    # Sample the flow at every grid point
+    fx = flow[yv, xv, 0] * scale          # horizontal displacement
+    fy = flow[yv, xv, 1] * scale          # vertical displacement
+
+    # Arrow tip coordinates
+    x_end = (xv + fx).astype(int)
+    y_end = (yv + fy).astype(int)
+
+    # Draw each arrow
+    for (x0, y0, x1, y1) in zip(xv.ravel(), yv.ravel(), x_end.ravel(), y_end.ravel()):
+        cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.3)
+
+    return out

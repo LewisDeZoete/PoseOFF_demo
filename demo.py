@@ -99,66 +99,34 @@ class Main:
         img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         im_height, im_width = img1_grey.shape
 
-        estimator = NormalFlowEstimator(buffer_size=5, grad_threshold=2.0)
-
         while cap.isOpened():
-            # ret, img2 = cap.read()
-            # if not ret:
-            #     print("Can't open frame")
-            #     break
-            # # Get the poses using YOLO
-            # poses = get_poses(img2, self.pose_model, threshold=self.args.threshold)
-
-            # # Convert the frame to grey to prep for LK flow estimation
-            # img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-            # # Calculate PoseOFF windows using LK flow
-            # poseoff, p0, p1 = poseoff_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
-
-            # # Drawing utilities
-            # img2 = draw_bones(img2, poses)
-            # # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-            # img2 = draw_flow_windows(img2, p0, p1, only_middle=self.args.only_middle, window_size=self.args.window_size, mag_threshold=self.args.mag_threshold)
-
-            # # Resize the input image...
-            # img2 = cv2.resize(img2, (im_width*2, im_height*2))
-
-            # # Show the frame
-            # cv2.imshow('Frame', img2)
-            # if cv2.waitKey(1) == ord('q'):
-            #     break
-
-            # # Set the current frame to the old frame before retrieving a new one...
-            # img1_grey = img2_grey.copy()
-
-
             ret, img2 = cap.read()
             if not ret:
                 print("Can't open frame")
                 break
+            # Get the poses using YOLO
+            poses = get_poses(img2, self.pose_model, threshold=self.args.threshold)
 
+            # Convert the frame to grey to prep for LK flow estimation
             img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
-            # # Default method
-            # norm_flows = get_norm_flows(img1_grey, img2_grey, alpha=1)
+            # Calculate PoseOFF windows using LK flow
+            poseoff, p0, p1 = poseoff_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
 
-            # Five frame method
-            norm_flows = estimator.push(img2)
+            # Drawing utilities
+            img2 = draw_bones(img2, poses)
+            # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
+            img2 = draw_flow_windows(img2, p0, p1, only_middle=self.args.only_middle, window_size=self.args.window_size, mag_threshold=self.args.mag_threshold)
 
-            if norm_flows is not None:
-                # img2 = draw_flow_arrows(img2, norm_flows)
-                hsv_mask = np.zeros_like(img2)
-                hsv_mask[..., 1] = 255
-                mag, ang = cv2.cartToPolar(norm_flows[..., 0], norm_flows[..., 1])
-                hsv_mask[..., 0] = ang*180/np.pi/2
-                hsv_mask[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-                img2 = cv2.cvtColor(hsv_mask, cv2.COLOR_HSV2BGR)
+            # Resize the input image...
+            img2 = cv2.resize(img2, (im_width*2, im_height*2))
 
-
-            cv2.imshow("frame", img2)
+            # Show the frame
+            cv2.imshow('Frame', img2)
             if cv2.waitKey(1) == ord('q'):
                 break
 
+            # Set the current frame to the old frame before retrieving a new one...
             img1_grey = img2_grey.copy()
 
         # Cleanup
@@ -172,6 +140,7 @@ class Main:
         img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         im_height, im_width = img1_grey.shape
 
+        estimator = NormalFlowEstimator(buffer_size=5, grad_thresholds=[0.5, 500.0])
         # If write_video==True, write video with the same name as the input
         if self.args.write_video:
             os.makedirs("output", exist_ok=True) # Create output folder
@@ -304,6 +273,48 @@ def crop_large_imgs(in_path="./TMP_SAVE/PoseOFF", x_origin=250, y_origin=150, si
         cropped = img[y_origin:y_origin+size, x_origin:x_origin+size]
 
         cv2.imwrite(img_out_path, cropped)
+
+def write_norm_flow_frames(args, n_buff_frames:int):
+    assert n_buff_frames in [2,5], "pleae select number of buffer frames to be either 2 or 5"
+    cap = cv2.VideoCapture(args.camera_number)
+    ret, img1 = cap.read()
+    img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+
+    estimator = NormalFlowEstimator(buffer_size=5, grad_thresholds=[0.5, 1000.0]) if n_buff_frames == 5 else None
+
+    os.makedirs("output", exist_ok=True) # Create output folder
+    video_filename = osp.join(
+        './output',
+        osp.basename(args.input_path).split('.')[0] + ".avi"
+    )
+    FPS = cap.get(cv2.CAP_PROP_FPS)
+    W, H = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    out = cv2.VideoWriter(video_filename, cv2.VideoWriter_fourcc(*'XVID'), FPS, (W, H))
+    print(f"Writing video to {video_filename}")
+
+    while cap.isOpened():
+        ret, img2 = cap.read()
+        if not ret:
+            break
+        img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+        if n_buff_frames == 2:
+            # Default method (2 frame temporal gradient)
+            norm_flows = get_norm_flows(img1_grey, img2_grey, alpha=1, grad_thresholds=[0.5, 500])
+        else:
+            # Five frame method (5 frame temporal gradient)
+            norm_flows = estimator.push(img2)
+
+        if norm_flows is not None:
+            img2 = draw_flow_arrows(img2, norm_flows)
+
+        img1_grey = img2_grey.copy()
+        out.write(img2)
+        # Set the current frame to the old frame before retrieving a new one...
+        img1_grey = img2_grey.copy()
+
+    cap.release()
+    out.release()
 
 
 if __name__ == '__main__':

@@ -1,9 +1,13 @@
 #+TITLE: Project Scratch
 
+* General
+Checked Ix, Iy and It by comparing max, min, mean, median
 * TODOs
 ** Manual
 *** General
 - [ ] Fix up offline (video) feed of PoseOFF
+- [ ] Bring 2 frame temporal gradient calculations into estimator class
+- [ ] Test out =write_norm_flow_frames= function
 ** Scanner
 Run scanner by moving cursor inside codeblock, then executing code =C-c C-c=
 #+NAME: scan-todos
@@ -49,6 +53,7 @@ Run scanner by moving cursor inside codeblock, then executing code =C-c C-c=
 
 #+begin_src python :results output
 import numpy as np
+from scipy.stats import iqr
 
 frame2_path = "./It_2frame.npy"
 frame5_path = "./It_5frame.npy"
@@ -60,22 +65,28 @@ print(f"2 frame Max:{ frame2.max() }")
 print(f"2 frame Min: { frame2.min() }")
 print(f"2 frame mean: { frame2.mean() }")
 print(f"2 frame median: { np.median(frame2) }")
+print(f"2 frame IQR: { iqr(frame2) }")
 
 print(f"5 frame Max:{ frame5.max() }")
 print(f"5 frame Min: { frame5.min() }")
 print(f"5 frame mean: { frame5.mean() }")
 print(f"5 frame median: { np.median(frame5) }")
+print(f"5 frame IQR: { iqr(frame5) }")
 #+end_src
 
 #+RESULTS:
-: 2 frame Max:132.0
-: 2 frame Min: -169.0
-: 2 frame mean: -0.75970703125
-: 2 frame median: 0.0
-: 5 frame Max:127.91666412353516
-: 5 frame Min: -128.0
-: 5 frame mean: 0.8225735425949097
-: 5 frame median: 0.0833333358168602
+#+begin_example
+2 frame Max:132.0
+2 frame Min: -169.0
+2 frame mean: -0.75970703125
+2 frame median: 0.0
+2 frame IQR: 2.0
+5 frame Max:127.91666412353516
+5 frame Min: -128.0
+5 frame mean: 0.8225735425949097
+5 frame median: 0.0833333358168602
+5 frame IQR: 2.9166667461395264
+#+end_example
 
 * Keybinds
 ** Navigation

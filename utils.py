@@ -6,6 +6,7 @@ import torch
 import numpy as np
 import cv2
 from collections import deque
+from scipy.stats import iqr, mstats
 
 def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
     '''Classical 5-point stencil central difference.
@@ -22,8 +23,19 @@ def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
     return It
 
 
-def get_norm_flows(img1, img2, alpha=1):
+def get_norm_flows(
+        img1,
+        img2,
+        alpha=1,
+        grad_thresholds=[1.0, 100.0]
+):
     '''Get the normal flow calculated between two images.
+
+    Arguments:
+        img1 (array): first image (H, W).
+        img1 (array): second image (H, W).
+        alpha (int): scaling factor on the numberator of the flow magnitude calculations.
+        grad_threshold list(float, float): minimum list[0] and maximum list[1] gradient mag thresholds.
 
     Returns:
         norm_flow (array): array of normal flows of shape (H, W, 2)
@@ -35,12 +47,24 @@ def get_norm_flows(img1, img2, alpha=1):
     Ix = cv2.Sobel(img2, cv2.CV_64F, 1, 0, ksize=5)
     Iy = cv2.Sobel(img2, cv2.CV_64F, 0, 1, ksize=5)
 
+    spatial_grads = np.sqrt(Ix**2 + Iy**2)
+
+    # Create a mask for removing gradients flows that are too small
+    mask = (spatial_grads > grad_thresholds[0]) & (spatial_grads < grad_thresholds[1])
+
     # TODO: Implement temporal gradient calculations here
     It = img2.astype(float) - img1.astype(float)
 
     # Normal flow vectors
     # (must add small factor in demoninator to avoid div by zero error)
-    flow_mags = -It / (alpha * (np.sqrt(Ix**2 + Iy**2) + 1e-6))
+    flow_mags = np.where(mask, -It / (alpha * (spatial_grads + 1e-6)), 0.0)
+
+    # print(f"2 frame flow magnitudes max:{ flow_mags.max() }")
+    # print(f"2 frame flow magnitudes min: { flow_mags.min() }")
+    # print(f"2 frame flow magnitudes mean: { flow_mags.mean() }")
+    # print(f"2 frame flow magnitudes median: { np.median(flow_mags) }")
+    # print(f"2 frame flow magnitudes IQR: { iqr(flow_mags) }")
+    # quit()
 
     norm_flow = np.stack([flow_mags*Ix, flow_mags*Iy], axis=-1)
 
@@ -57,7 +81,7 @@ def compute_normal_flow(
     Ix: np.ndarray,
     Iy: np.ndarray,
     It: np.ndarray,
-    grad_threshold: float = 1.0,
+    grad_thresholds: list[float] = [1.0, 500.0],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Compute the normal flow (u_n, v_n) at each pixel.
@@ -80,11 +104,18 @@ def compute_normal_flow(
     u_n, v_n : normal flow components (H, W), NaN where masked
     mask     : boolean array, True where flow is valid
     """
-    grad_sq = Ix**2 + Iy**2                        # |∇I|²
-    mask = grad_sq > grad_threshold**2              # valid edge pixels
+    spatial_grads = np.sqrt(Ix**2 + Iy**2)
+    mask = (spatial_grads > grad_thresholds[0]) & (spatial_grads < grad_thresholds[1])
 
     # Scalar normal speed: s = -I_t / |∇I|²
-    s = np.where(mask, -It / (grad_sq + 1e-8), 0.0)
+    s = np.where(mask, -It / (spatial_grads + 1e-6), 0.0)
+
+    # print(f"5 frame Max:{ s.max() }")
+    # print(f"5 frame Min: { s.min() }")
+    # print(f"5 frame mean: { s.mean() }")
+    # print(f"5 frame median: { np.median(s) }")
+    # print(f"5 frame IQR: { iqr(s) }")
+    # quit()
 
     u_n = s * Ix    # x-component
     v_n = s * Iy    # y-component
@@ -98,16 +129,17 @@ class NormalFlowEstimator:
     def __init__(
             self,
             buffer_size: int = 5,
-            grad_threshold: float = 1.0
+            grad_thresholds: list[float] = [1.0, 100.0]
     ):
         self.buffer_size = buffer_size
-        self.grad_threshold = grad_threshold
+        self.grad_thresholds = grad_thresholds
         self._buffer: deque[np.ndarray] = deque(maxlen=buffer_size)
 
     def push(self, frame):
-        if frame.ndim == 3:
+        if frame.ndim == 3: # Ensure grey image...
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+        # put frame in frame buffer
         self._buffer.append(frame.astype(np.float32))
         if len(self._buffer) < self.buffer_size:
             return None # still warming up...
@@ -116,7 +148,7 @@ class NormalFlowEstimator:
         ref_frame = frames[2]
         Ix, Iy = spatial_gradients(ref_frame)
 
-        u_n, v_n, mask = compute_normal_flow(Ix, Iy, It, self.grad_threshold)
+        u_n, v_n, mask = compute_normal_flow(Ix, Iy, It, self.grad_thresholds)
 
         norm_flow = np.stack([u_n, v_n], axis=-1)
         norm_flow = np.where(np.stack([mask, mask], -1), norm_flow, 0.0)
@@ -388,5 +420,25 @@ def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickne
     # Draw each arrow
     for (x0, y0, x1, y1) in zip(xv.ravel(), yv.ravel(), x_end.ravel(), y_end.ravel()):
         cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.3)
+
+    return out
+
+def draw_flow_hsv(frame, flow):
+    '''TODO: Docstring'''
+    if frame.ndim == 2:
+        out = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    else:
+        out = frame.copy()
+
+    # Create a mask we will use to generate HSV color img
+    hsv_mask = np.zeros_like(out)
+    hsv_mask[..., 1] = 255 # set channel (saturation) to max
+    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1]) # convert flow vecs to polar coords
+
+    # Convert angles from degrees to radians
+    hsv_mask[..., 0] = ang*180/np.pi/2
+    hsv_mask[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    # Take the hsv mask and convert it into BGR color space...
+    out = cv2.cvtColor(hsv_mask, cv2.COLOR_HSV2BGR)
 
     return out

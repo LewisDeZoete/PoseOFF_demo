@@ -125,6 +125,10 @@ actors_info/
 *.mp4
 *.avi
 
+# Images
+# NOTE: this might hinder future commits!
+*.png
+
 # Emacs backups and files
 *~
 .dir-locals.el

@@ -6,22 +6,11 @@ import torch
 import numpy as np
 import cv2
 from collections import deque
-from scipy.stats import iqr, mstats
+from scipy import stats
 
-def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
-    '''Classical 5-point stencil central difference.
-    Fourth-order accurate: O(Δt⁴).
-
-    Kernel:  (-1/12, 8/12, 0, -8/12, 1/12)  applied to [I_{-2}, I_{-1}, I_0, I_1, I_2]
-    Assumes the middle frame (index 2) is the current frame.
-    Requires exactly 5 frames.
-    '''
-    assert len(frames) == 5, "5-point stencil requires exactly 5 frames"
-    f = [f.astype(np.float32) for f in frames]
-    # Numerator: -f[-2] + 8*f[-1] - 8*f[1] + f[2]  (normalised by 12)
-    It = (-f[0] + 8*f[1] - 8*f[3] + f[4]) / 12.0
-    return It
-
+# ---------------------------------------------------------
+# EXTRACTION TOOLS
+# ---------------------------------------------------------
 
 def get_norm_flows(
         img1,
@@ -59,17 +48,24 @@ def get_norm_flows(
     # (must add small factor in demoninator to avoid div by zero error)
     flow_mags = np.where(mask, -It / (alpha * (spatial_grads + 1e-6)), 0.0)
 
-    # print(f"2 frame flow magnitudes max:{ flow_mags.max() }")
-    # print(f"2 frame flow magnitudes min: { flow_mags.min() }")
-    # print(f"2 frame flow magnitudes mean: { flow_mags.mean() }")
-    # print(f"2 frame flow magnitudes median: { np.median(flow_mags) }")
-    # print(f"2 frame flow magnitudes IQR: { iqr(flow_mags) }")
-    # quit()
-
     norm_flow = np.stack([flow_mags*Ix, flow_mags*Iy], axis=-1)
 
     return norm_flow
 
+
+def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
+    '''Classical 5-point stencil central difference.
+    Fourth-order accurate: O(Δt⁴).
+
+    Kernel:  (-1/12, 8/12, 0, -8/12, 1/12)  applied to [I_{-2}, I_{-1}, I_0, I_1, I_2]
+    Assumes the middle frame (index 2) is the current frame.
+    Requires exactly 5 frames.
+    '''
+    assert len(frames) == 5, "5-point stencil requires exactly 5 frames"
+    f = [f.astype(np.float32) for f in frames]
+    # Numerator: -f[-2] + 8*f[-1] - 8*f[1] + f[2]  (normalised by 12)
+    It = (-f[0] + 8*f[1] - 8*f[3] + f[4]) / 12.0
+    return It
 
 def spatial_gradients(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     img = frame.astype(np.float32)
@@ -110,13 +106,6 @@ def compute_normal_flow(
     # Scalar normal speed: s = -I_t / |∇I|²
     s = np.where(mask, -It / (spatial_grads + 1e-6), 0.0)
 
-    # print(f"5 frame Max:{ s.max() }")
-    # print(f"5 frame Min: { s.min() }")
-    # print(f"5 frame mean: { s.mean() }")
-    # print(f"5 frame median: { np.median(s) }")
-    # print(f"5 frame IQR: { iqr(s) }")
-    # quit()
-
     u_n = s * Ix    # x-component
     v_n = s * Iy    # y-component
 
@@ -134,15 +123,17 @@ class NormalFlowEstimator:
         self.buffer_size = buffer_size
         self.grad_thresholds = grad_thresholds
         self._buffer: deque[np.ndarray] = deque(maxlen=buffer_size)
+        self._buffer_rgb: deque[np.ndarray] = deque(maxlen=buffer_size)
 
     def push(self, frame):
+        self._buffer_rgb.append(frame)
         if frame.ndim == 3: # Ensure grey image...
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # put frame in frame buffer
         self._buffer.append(frame.astype(np.float32))
         if len(self._buffer) < self.buffer_size:
-            return None # still warming up...
+            return None, None # still warming up...
         frames = list(self._buffer)
         It = temporal_gradient_5point(frames)
         ref_frame = frames[2]
@@ -153,7 +144,7 @@ class NormalFlowEstimator:
         norm_flow = np.stack([u_n, v_n], axis=-1)
         norm_flow = np.where(np.stack([mask, mask], -1), norm_flow, 0.0)
 
-        return norm_flow
+        return norm_flow, self._buffer_rgb[2]
 
 
 def get_poses(frame, pose_model, threshold=0.2):
@@ -179,82 +170,6 @@ def get_poses(frame, pose_model, threshold=0.2):
 
     poses = rearrange(poses, 'C V M -> (M V) C')
     return poses
-
-
-def draw_bones(frame, pose, person_num=None):
-    frame = frame.copy()
-    H,W,C = frame.shape
-    pose_local = pose.detach().clone()
-    pose_local[:, 0] = pose_local[:, 0] * (W-1)
-    pose_local[:, 1] = pose_local[:, 1] * (H-1)
-    pose_local = rearrange(pose_local, '(M V) C -> M V C', M=2, V=17)
-    joint_connections = [
-        [0,1], [0,2], [1,3], [2,4],
-        [5,6], [5,7], [7,9], [6,8], [8,10],
-        [5,11], [11,13], [13,15],
-        [6,12], [12,14], [14,16]
-    ]
-    # Check if alpha channel exists in frame
-    color = (255,0,0) if frame.shape[-1] == 3 else (255,0,0,255)
-    # Get individual person's specific pose (if person_num specified)
-    if person_num in [0,1]:
-        pose_local = pose_local[person_num].reshape((1, 17, 2))
-
-    for person in pose_local:
-        for joint_connection in joint_connections:
-            p1, p2 = joint_connection
-            if person[p1, 0] <= 1.0 or person[p2, 0] <= 1.0:
-                continue
-            cv2.line(frame,
-                    (int(person[p1,0]), int(person[p1,1])),
-                    (int(person[p2,0]), int(person[p2,1])),
-                    color, 3
-                    )
-    return frame
-
-
-def draw_skel(frame, pose, person_num=None, skip_points=[], debug=False):  # Poses shape: (M V) C
-    frame = frame.copy()
-    H,W,C = frame.shape
-    pose_local = pose.detach().clone()
-    pose_local[:, 0] = pose_local[:, 0] * (W-1)
-    pose_local[:, 1] = pose_local[:, 1] * (H-1)
-    pose_local = rearrange(pose_local, '(M V) C -> M V C', M=2, V=17)
-    if person_num != None: # If a person_num is passed, only get that specific body!
-        pose_local = (pose_local[person_num]).reshape((1, 17, 2))
-
-
-    inner_circ_params = {
-        "radius": 5,
-        "color": (0, 0, 255) if frame.shape[-1] == 3 else (0, 0, 255, 255),
-        "thickness": -1
-    }
-    outer_circ_params = {
-        "radius": 6,
-        "color": (255, 0, 0) if frame.shape[-1] == 3 else (255, 0, 0, 255),
-        "thickness": 3
-    }
-    # if frame.shape[1] < 500:
-    #     pose_local[:, 0] = pose_local[:, 0] * (319 / 1919)
-    #     pose_local[:, 1] = pose_local[:, 1] * (239 / 1079)
-    #     circ_params = {"radius": 2, "color": (0, 0, 255), "thickness": 2}
-    # Draw the skeleton keypoints on the frame
-    for person in pose_local:
-        for keypoint_num, keypoint in enumerate(person):
-            if 0 in keypoint:
-                continue
-            if keypoint_num in skip_points:
-                continue
-
-            # Draw circle fill first, then the outer circle in blue
-            cv2.circle(frame, (int(keypoint[0]), int(keypoint[1])), **inner_circ_params)
-            cv2.circle(frame, (int(keypoint[0]), int(keypoint[1])), **outer_circ_params)
-
-            if debug:
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(frame,str(keypoint_num), (int(keypoint[0]), int(keypoint[1])), font, 0.5,(255,255,255),2,cv2.LINE_AA)
-    return frame
-
 
 
 def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, debug_frame=None):
@@ -351,6 +266,84 @@ def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, 
     flow_windows = rearrange(flow_windows, 'W (V M) -> W V M', V=17, M=2)
     return flow_windows, p0, p1
 
+# ---------------------------------------------------------
+# DRAWING TOOLS
+# ---------------------------------------------------------
+
+def draw_bones(frame, pose, person_num=None):
+    frame = frame.copy()
+    H,W,C = frame.shape
+    pose_local = pose.detach().clone()
+    pose_local[:, 0] = pose_local[:, 0] * (W-1)
+    pose_local[:, 1] = pose_local[:, 1] * (H-1)
+    pose_local = rearrange(pose_local, '(M V) C -> M V C', M=2, V=17)
+    joint_connections = [
+        [0,1], [0,2], [1,3], [2,4],
+        [5,6], [5,7], [7,9], [6,8], [8,10],
+        [5,11], [11,13], [13,15],
+        [6,12], [12,14], [14,16]
+    ]
+    # Check if alpha channel exists in frame
+    color = (255,0,0) if frame.shape[-1] == 3 else (255,0,0,255)
+    # Get individual person's specific pose (if person_num specified)
+    if person_num in [0,1]:
+        pose_local = pose_local[person_num].reshape((1, 17, 2))
+
+    for person in pose_local:
+        for joint_connection in joint_connections:
+            p1, p2 = joint_connection
+            if person[p1, 0] <= 1.0 or person[p2, 0] <= 1.0:
+                continue
+            cv2.line(frame,
+                    (int(person[p1,0]), int(person[p1,1])),
+                    (int(person[p2,0]), int(person[p2,1])),
+                    color, 3
+                    )
+    return frame
+
+
+def draw_skel(frame, pose, person_num=None, skip_points=[], debug=False):  # Poses shape: (M V) C
+    frame = frame.copy()
+    H,W,C = frame.shape
+    pose_local = pose.detach().clone()
+    pose_local[:, 0] = pose_local[:, 0] * (W-1)
+    pose_local[:, 1] = pose_local[:, 1] * (H-1)
+    pose_local = rearrange(pose_local, '(M V) C -> M V C', M=2, V=17)
+    if person_num != None: # If a person_num is passed, only get that specific body!
+        pose_local = (pose_local[person_num]).reshape((1, 17, 2))
+
+
+    inner_circ_params = {
+        "radius": 5,
+        "color": (0, 0, 255) if frame.shape[-1] == 3 else (0, 0, 255, 255),
+        "thickness": -1
+    }
+    outer_circ_params = {
+        "radius": 6,
+        "color": (255, 0, 0) if frame.shape[-1] == 3 else (255, 0, 0, 255),
+        "thickness": 3
+    }
+    # if frame.shape[1] < 500:
+    #     pose_local[:, 0] = pose_local[:, 0] * (319 / 1919)
+    #     pose_local[:, 1] = pose_local[:, 1] * (239 / 1079)
+    #     circ_params = {"radius": 2, "color": (0, 0, 255), "thickness": 2}
+    # Draw the skeleton keypoints on the frame
+    for person in pose_local:
+        for keypoint_num, keypoint in enumerate(person):
+            if 0 in keypoint:
+                continue
+            if keypoint_num in skip_points:
+                continue
+
+            # Draw circle fill first, then the outer circle in blue
+            cv2.circle(frame, (int(keypoint[0]), int(keypoint[1])), **inner_circ_params)
+            cv2.circle(frame, (int(keypoint[0]), int(keypoint[1])), **outer_circ_params)
+
+            if debug:
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(frame,str(keypoint_num), (int(keypoint[0]), int(keypoint[1])), font, 0.5,(255,255,255),2,cv2.LINE_AA)
+    return frame
+
 
 def draw_flow_windows(frame, p0, p1, only_middle=False, window_size=3, mag_threshold=1000, mag_red=False):
     '''Draw optical flow windows (PoseOFF) to a frame.
@@ -423,8 +416,13 @@ def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickne
 
     return out
 
-def draw_flow_hsv(frame, flow):
-    '''TODO: Docstring'''
+def draw_flow_hsv(frame, flow, norm=True):
+    '''TODO: Docstring
+
+    Args:
+    ...
+    norm (bool): Normalise the HSV values stretching them between 0 and 255. Default is True.
+    '''
     if frame.ndim == 2:
         out = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_GRAY2BGR)
     else:
@@ -437,7 +435,10 @@ def draw_flow_hsv(frame, flow):
 
     # Convert angles from degrees to radians
     hsv_mask[..., 0] = ang*180/np.pi/2
-    hsv_mask[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    if norm:
+        hsv_mask[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    else:
+        hsv_mask[..., 2] = cv2.normalize(mag, None, 0, 255).astype(np.uint8)
     # Take the hsv mask and convert it into BGR color space...
     out = cv2.cvtColor(hsv_mask, cv2.COLOR_HSV2BGR)
 

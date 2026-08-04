@@ -18,7 +18,7 @@ def get_norm_flows(
         alpha=1,
         grad_thresholds=[1.0, 100.0]
 ):
-    '''Get the normal flow calculated between two images.
+    """Get the normal flow calculated between two images.
 
     Arguments:
         img1 (array): first image (H, W).
@@ -28,7 +28,7 @@ def get_norm_flows(
 
     Returns:
         norm_flow (array): array of normal flows of shape (H, W, 2)
-    '''
+    """
     # Gaussian blurring pre-sobel
     img1 = cv2.GaussianBlur(img1,(5,5),0)
     img2 = cv2.GaussianBlur(img2,(5,5),0)
@@ -67,11 +67,27 @@ def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
     It = (-f[0] + 8*f[1] - 8*f[3] + f[4]) / 12.0
     return It
 
+
+def temporal_gradient_sobel(frames: list[np.ndarray]) -> np.ndarray:
+    '''Sobel filter for temporal gradient.
+
+    Kernel: (-1/8, -2/8, 0, 2/8, 1/8) applied to [I_{-2}, I_{-1}, I_0, I_1, I_2]
+    Assumes the middle frame (index 2) is the current frame.
+    Requires exactly 5 frames.
+    '''
+    assert len(frames) == 5, "5-point stencil requires exactly 5 frames"
+    f = [f.astype(np.float32) for f in frames]
+    # Numerator: -f[-2] + 8*f[-1] - 8*f[1] + f[2]  (normalised by 12)
+    It = (-f[0] - 2*f[1] + 2*f[3] + f[4]) / 8.0
+    return It
+
+
 def spatial_gradients(frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     img = frame.astype(np.float32)
     Ix = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=5)
     Iy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=5)
     return Ix, Iy
+
 
 def compute_normal_flow(
     Ix: np.ndarray,
@@ -114,14 +130,17 @@ def compute_normal_flow(
 
     return u_n, v_n, mask
 
+
 class NormalFlowEstimator:
     def __init__(
             self,
             buffer_size: int = 5,
-            grad_thresholds: list[float] = [1.0, 100.0]
+            grad_thresholds: list[float] = [1.0, 100.0],
+            temporal_estimator = temporal_gradient_5point
     ):
         self.buffer_size = buffer_size
         self.grad_thresholds = grad_thresholds
+        self.temporal_estimator = temporal_estimator
         self._buffer: deque[np.ndarray] = deque(maxlen=buffer_size)
         self._buffer_rgb: deque[np.ndarray] = deque(maxlen=buffer_size)
 
@@ -135,7 +154,8 @@ class NormalFlowEstimator:
         if len(self._buffer) < self.buffer_size:
             return None, None # still warming up...
         frames = list(self._buffer)
-        It = temporal_gradient_5point(frames)
+        # It = temporal_gradient_5point(frames)
+        It = self.temporal_estimator(frames)
         ref_frame = frames[2]
         Ix, Iy = spatial_gradients(ref_frame)
 
@@ -265,6 +285,7 @@ def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, 
     # Here, C is the x and y channels of flow, H and W are height and width respectively
     flow_windows = rearrange(flow_windows, 'W (V M) -> W V M', V=17, M=2)
     return flow_windows, p0, p1
+
 
 # ---------------------------------------------------------
 # DRAWING TOOLS

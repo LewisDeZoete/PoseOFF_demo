@@ -124,6 +124,7 @@ actors_info/
 # Videos (can always be regenerated)
 *.mp4
 *.avi
+*.webm
 
 # Images
 # NOTE: this might hinder future commits!

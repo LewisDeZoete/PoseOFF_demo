@@ -425,18 +425,18 @@ if __name__ == '__main__':
     # Create YOLO-pose model
     pose_model = YOLO("yolo11m-pose.pt")
 
+    # # -------------------------
+    # Main(args, pose_model)
+    # # -------------------------
+
     # -------------------------
-    Main(args, pose_model)
-    # -------------------------
-    #
-    # -------------------------
-    # normal_flow_frames(
-    #     input_path=args.input_path,
-    #     five_frame=True,
-    #     HSV=False,
-    #     write_video=args.write_video,
-    #     resize=args.resize
-    # )
+    normal_flow_frames(
+        input_path=args.input_path,
+        five_frame=True,
+        HSV=False,
+        write_video=args.write_video,
+        resize=args.resize
+    )
     # -------------------------
     cv2.destroyAllWindows()
 

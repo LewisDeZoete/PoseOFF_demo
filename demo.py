@@ -5,7 +5,6 @@ import os.path as osp
 import argparse
 import cv2
 from utils import *
-from scipy import stats
 
 
 def get_args():

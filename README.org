@@ -1,26 +1,46 @@
 * PoseOFF Extraction Demo
+
 This repo contains a simple, live demonstration of the PoseOFF extraction method using the [[https://cseweb.ucsd.edu/classes/sp02/cse252/lucaskanade81.pdf][Lucas-Kanade method]] of optical flow estimation in combination with [[https://docs.ultralytics.com/tasks/pose/][YOLO Pose]].
 
+I've set this up to use [[https://docs.astral.sh/uv/][Astral UV]] to control the python environment and [[https://direnv.net/][direnv]] to control other environmental variables - for example your LSP. You can skip the latter, but I highly recommend at least trying UV.
 
 *NOTE*: This demo only shows a visualisation of the extraction method, and does not contain and end-to-end human action anticipation framework.
 
 ** Installation
+
 Clone this repo:
 
 #+begin_src sh
 git clone https://github.com/LewisDeZoete/PoseOFF_demo.git
 #+end_src
 
-Next, create the python environment and install the
+Install UV to manage the python environment:
+#+begin_src sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+#+end_src
+
+Next, create the virtual environment and install the required dependencies. The dependencies are outlined in the [[file:pyproject.toml][project.toml]].
+
 *** UNIX
 
+**** Default
 #+begin_src sh
 cd PoseOFF_demo
-python -m venv ./env
+# Create the virtual environment
+python -m venv ./env # Default python venv
+
 # Activate the environment
 source ./env/bin/activate
-# Install requirements, this may take some time!
+
+# Install the requirements
 python -m pip install -r requirements.txt
+#+end_src
+
+**** UV
+If you've installed [[https://docs.astral.sh/uv/][Astral UV]], it's as simple as:
+#+begin_src sh
+cd PoseOFF_demo
+uv sync
 #+end_src
 
 *** Windows

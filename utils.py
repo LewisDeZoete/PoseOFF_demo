@@ -6,52 +6,10 @@ import torch
 import numpy as np
 import cv2
 from collections import deque
-from scipy import stats
 
 # ---------------------------------------------------------
 # EXTRACTION TOOLS
 # ---------------------------------------------------------
-
-def get_norm_flows(
-        img1,
-        img2,
-        alpha=1,
-        grad_thresholds=[1.0, 100.0]
-):
-    """Get the normal flow calculated between two images.
-
-    Arguments:
-        img1 (array): first image (H, W).
-        img1 (array): second image (H, W).
-        alpha (int): scaling factor on the numberator of the flow magnitude calculations.
-        grad_threshold list(float, float): minimum list[0] and maximum list[1] gradient mag thresholds.
-
-    Returns:
-        norm_flow (array): array of normal flows of shape (H, W, 2)
-    """
-    # Gaussian blurring pre-sobel
-    img1 = cv2.GaussianBlur(img1,(5,5),0)
-    img2 = cv2.GaussianBlur(img2,(5,5),0)
-    # Calculate spatial gradients
-    Ix = cv2.Sobel(img2, cv2.CV_64F, 1, 0, ksize=5)
-    Iy = cv2.Sobel(img2, cv2.CV_64F, 0, 1, ksize=5)
-
-    spatial_grads = np.sqrt(Ix**2 + Iy**2)
-
-    # Create a mask for removing gradients flows that are too small
-    mask = (spatial_grads > grad_thresholds[0]) & (spatial_grads < grad_thresholds[1])
-
-    # TODO: Implement temporal gradient calculations here
-    It = img2.astype(float) - img1.astype(float)
-
-    # Normal flow vectors
-    # (must add small factor in demoninator to avoid div by zero error)
-    flow_mags = np.where(mask, -It / (alpha * (spatial_grads + 1e-6)), 0.0)
-
-    norm_flow = np.stack([flow_mags*Ix, flow_mags*Iy], axis=-1)
-
-    return norm_flow
-
 
 def temporal_gradient_5point(frames: list[np.ndarray]) -> np.ndarray:
     '''Classical 5-point stencil central difference.
@@ -130,17 +88,31 @@ def compute_normal_flow(
 
     return u_n, v_n, mask
 
-
+    
 class NormalFlowEstimator:
     def __init__(
             self,
             buffer_size: int = 5,
             grad_thresholds: list[float] = [1.0, 100.0],
-            temporal_estimator = temporal_gradient_5point
+            temporal_estimator = temporal_gradient_5point,
+            ksize: int = 9
     ):
+        '''TODO: Docstring
+
+        Args:
+            buffer_size (int, optional): Size of frame buffer for normal flow. Defaults to 5.
+            grad_threshold (list[float], optional): Minimum and maximum gradients, above/below which are ignored. Defaults to [1.0, 100.0].
+            temporal_estimator (optional): Temporal gradient estimator, either 5pt central difference or sobel style. Defaults to temporal_gradient_5pt.
+            ksize (int, optional): Gaussian blur kernal size - frames are blurred pre-norm flow estimation. Defaults to 9.
+
+        Returns:
+            norm_flow (np.ndarray): Array of calculated normal flow vectors of shape (H,W,2).
+            frame (np.ndarray): Input RGB frame.
+        '''
         self.buffer_size = buffer_size
         self.grad_thresholds = grad_thresholds
         self.temporal_estimator = temporal_estimator
+        self.ksize = ksize
         self._buffer: deque[np.ndarray] = deque(maxlen=buffer_size)
         self._buffer_rgb: deque[np.ndarray] = deque(maxlen=buffer_size)
 
@@ -148,6 +120,9 @@ class NormalFlowEstimator:
         self._buffer_rgb.append(frame)
         if frame.ndim == 3: # Ensure grey image...
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Bit of Gaussian blur for the sake if it :)
+        frame = cv2.GaussianBlur(frame, (self.ksize, self.ksize), 0)
 
         # put frame in frame buffer
         self._buffer.append(frame.astype(np.float32))
@@ -166,7 +141,34 @@ class NormalFlowEstimator:
 
         return norm_flow, self._buffer_rgb[2]
 
+    def offline(self, frames: list[np.ndarray]):
+        """Offline normal flow calculation!
 
+        Args:
+            frames (list[np.ndarray]): Buffer of length self.buffer_size for which norm flow is calculated.
+
+        Returns:
+            norm_flow (np.ndarray): 2D array of normal flows calculated from frames.
+            frame (np.ndarray): RGB frame at centre (index 2) of input frames.
+        """
+        assert len(frames) == self.buffer_size
+        rgb_frame = frames[2]
+        if frames[0].ndim == 3: # Ensure grey image...
+            frames = [cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) for frame in frames]
+
+        # Estimate temporal gradients
+        It = self.temporal_estimator(frames)
+        ref_frame = frames[2]
+        Ix, Iy = spatial_gradients(ref_frame)
+
+        u_n, v_n, mask = compute_normal_flow(Ix, Iy, It, self.grad_thresholds)
+
+        norm_flow = np.stack([u_n, v_n], axis=-1)
+        norm_flow = np.where(np.stack([mask, mask], -1), norm_flow, 0.0)
+
+        return norm_flow, rgb_frame
+
+    
 def get_poses(frame, pose_model, threshold=0.2):
     results = pose_model(frame, verbose=False)
     result = results[0]
@@ -192,7 +194,7 @@ def get_poses(frame, pose_model, threshold=0.2):
     return poses
 
 
-def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, debug_frame=None):
+def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1):
     """Using the LK method of optical flow calculation...
     CV implementation: https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
     goodFeaturesToTrack returns list of length `max_corners`, of shape: [max_corners, 1, 2].
@@ -225,7 +227,7 @@ def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1, 
 
     # Get some shapes of input tensors
     height, width = frame1.shape
-    total_keypoints, channels = poses.shape
+    total_keypoints, _ = poses.shape
 
     pose_local[:, 0] = pose_local[:, 0] * (width-1)
     pose_local[:, 1] = pose_local[:, 1] * (height-1)
@@ -436,6 +438,7 @@ def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickne
         cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.3)
 
     return out
+
 
 def draw_flow_hsv(frame, flow, norm=True):
     '''TODO: Docstring

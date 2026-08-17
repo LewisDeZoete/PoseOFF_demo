@@ -1,56 +1,100 @@
 #!/usr/bin/env python3
+import os.path as osp
+import os
+import re
 import cv2
 import numpy as np
+from utils import get_poses, draw_bones, draw_skel
+import torch
+from einops import rearrange
+from ultralytics import YOLO
 
-vid = "punch" # punch / shake
+vid = "shake" # punch / shake
 
 def main(vid):
-    vid_path = f'input/punch_shake/{vid}-rgb.npy'
-    vid_np = np.load(vid_path).transpose(0, 2,3,1)
+    rgb_path = f'input/punch_shake/C{vid}_color.mp4'
+    poses_path = f'input/punch_shake/{vid}-poses.npy'
+    flow_path = f'input/punch_shake/{vid}-flow.npy'
 
-    print(vid_np.shape)
-    while True:
-        cv2.imshow('NE', vid_np[0].astype(np.float32))
-        if cv2.waitKey(1) == ord('q'):
+    poses = torch.from_numpy( np.load(poses_path) )
+    flows = torch.from_numpy( np.load(flow_path) )
+
+    flows = rearrange(flows, 'T C H W -> T H W C')
+
+    print(f'Flow shape: {flows.shape}')
+    print(f'Pose shape: {poses.shape}')
+
+    cap = cv2.VideoCapture(rgb_path)
+    frame_no = 0
+
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        frame = np.zeros((480, 640, 4))
+        if not ret:
+            print("Can't open frame")
             break
-    # print("\n ------- PRESS `Q` TO QUIT ------ \n")
-    # ret, img1 = cap.read()
-    # img1_grey = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    # im_height, im_width = img1_grey.shape
 
-    # while cap.isOpened():
-    #     ret, img2 = cap.read()
-    #     if not ret:
-    #         print("Can't open frame")
-    #         break
-    #     # # Get the poses using YOLO
-    #     # poses = get_poses(img2, self.pose_model, threshold=self.args.threshold)
+        frame = draw_bones(frame, poses[frame_no])
+        frame = draw_skel(frame, poses[frame_no])
 
-    #     # # Convert the frame to grey to prep for LK flow estimation
-    #     # img2_grey = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+        cv2.imshow('NE', frame)
+        if cv2.waitKey(0) == ord('q'):
+            break
 
-    #     # # Calculate PoseOFF windows using LK flow
-    #     # poseoff, p0, p1 = poseoff_lk(img1_grey, img2_grey, poses, window_size=self.args.window_size, dilation=self.args.dilation)
+        frame_no +=1
 
-    #     # # Drawing utilities
-    #     # img2 = draw_bones(img2, poses)
-    #     # # img2 = draw_skel(img2, poses) # Uncomment this to draw the skeleton joint
-    #     # img2 = draw_flow_windows(img2, p0, p1, only_middle=self.args.only_middle, window_size=self.args.window_size, mag_threshold=self.args.mag_threshold)
+    cap.release()
+    import cv2
 
-    #     # Resize the input image...
-    #     img2 = cv2.resize(img2, (im_width*2, im_height*2))
+def write_video(frame_paths, output_path, fps=30, background=(0, 0, 0)):
+    """
+    Write a list of image files to a single video file.
 
-    #     # Show the frame
-    #     cv2.imshow('Frame', img2)
-    #     if cv2.waitKey(1) == ord('q'):
-    #         break
+    Args:
+        frame_paths: list of file paths (in order) to the frames.
+        output_path: path to write the output video (e.g. "out.avi").
+        fps: frames per second.
+        background: RGB color to flatten alpha channel onto, if present.
+    """
+    print(f"Writing video to {output_path}")
+    if not frame_paths:
+        raise ValueError("frame_paths is empty")
 
-    #     # Set the current frame to the old frame before retrieving a new one...
-    #     img1_grey = img2_grey.copy()
+    # Read first frame to get dimensions
+    first = cv2.imread(frame_paths[0], cv2.IMREAD_UNCHANGED)
+    if first is None:
+        raise ValueError(f"Could not read {frame_paths[0]}")
+    h, w = first.shape[:2]
 
-    # # Cleanup
-    # cap.release()
-    # cv2.destroyAllWindows()
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
 
+    for path in frame_paths:
+        frame = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        if frame is None:
+            raise ValueError(f"Could not read {path}")
+
+        # Flatten alpha channel if present
+        if frame.shape[-1] == 4:
+            bgr = frame[..., :3].astype(np.float32)
+            alpha = (frame[..., 3:4].astype(np.float32)) / 255.0
+            bg = np.array(background, dtype=np.float32).reshape(1, 1, 3)
+            frame = (bgr * alpha + bg * (1 - alpha)).astype(np.uint8)
+
+        if frame.shape[:2] != (h, w):
+            frame = cv2.resize(frame, (w, h))
+
+        writer.write(frame)
+
+    writer.release()
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text
+            for text in re.split(r'(\d+)', s)]
 if __name__=="__main__":
-    main(vid)
+    vid = "shake"
+    type = "flow"
+    frame_names = sorted(os.listdir(f'input/punch_shake/frames/{vid}/{type}'), key=natural_sort_key)
+    frame_paths = [f'input/punch_shake/frames/{vid}/{type}/{frame_name}' for frame_name in frame_names]
+    write_video(frame_paths, f'./input/punch_shake/{vid}-{type}.mp4')
+    # main(vid)

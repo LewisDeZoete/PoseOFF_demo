@@ -399,7 +399,7 @@ def draw_flow_windows(frame, p0, p1, only_middle=False, window_size=3, mag_thres
     return frame
 
 
-def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickness=1):
+def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickness=1, threshold=1.0):
     '''Draw optical flow vectors as arrows on an image.
 
     Args:
@@ -435,7 +435,9 @@ def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickne
 
     # Draw each arrow
     for (x0, y0, x1, y1) in zip(xv.ravel(), yv.ravel(), x_end.ravel(), y_end.ravel()):
-        cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.3)
+        mag = ((x1-x0)**2 + (y1-y0)**2)**0.5
+        if mag > threshold:
+            cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.3)
 
     return out
 

@@ -4,7 +4,7 @@ import os
 import re
 import cv2
 import numpy as np
-from utils import get_poses, draw_bones, draw_skel
+from utils import draw_flow_arrows, get_poses, draw_bones, draw_skel
 import torch
 from einops import rearrange
 from ultralytics import YOLO
@@ -17,7 +17,7 @@ def main(vid):
     flow_path = f'input/punch_shake/{vid}-flow.npy'
 
     poses = torch.from_numpy( np.load(poses_path) )
-    flows = torch.from_numpy( np.load(flow_path) )
+    flows = np.load(flow_path) 
 
     flows = rearrange(flows, 'T C H W -> T H W C')
 
@@ -35,8 +35,9 @@ def main(vid):
             print("Can't open frame")
             break
 
-        frame = draw_bones(frame, poses[frame_no])
-        frame = draw_skel(frame, poses[frame_no])
+        frame = draw_flow_arrows(frame, flows[frame_no], scale=5.0, threshold=1.0)
+        # frame = draw_bones(frame, poses[frame_no])
+        # frame = draw_skel(frame, poses[frame_no])
 
         cv2.imshow('NE', frame)
         if cv2.waitKey(0) == ord('q'):
@@ -45,7 +46,6 @@ def main(vid):
         frame_no +=1
 
     cap.release()
-    import cv2
 
 def write_video(frame_paths, output_path, fps=30, background=(0, 0, 0)):
     """
@@ -88,13 +88,15 @@ def write_video(frame_paths, output_path, fps=30, background=(0, 0, 0)):
         writer.write(frame)
 
     writer.release()
+
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text
             for text in re.split(r'(\d+)', s)]
+
 if __name__=="__main__":
     vid = "shake"
     type = "flow"
     frame_names = sorted(os.listdir(f'input/punch_shake/frames/{vid}/{type}'), key=natural_sort_key)
     frame_paths = [f'input/punch_shake/frames/{vid}/{type}/{frame_name}' for frame_name in frame_names]
-    write_video(frame_paths, f'./input/punch_shake/{vid}-{type}.mp4')
-    # main(vid)
+    # write_video(frame_paths, f'./input/punch_shake/{vid}-{type}.mp4')
+    main(vid)

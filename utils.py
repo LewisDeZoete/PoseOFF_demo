@@ -296,7 +296,10 @@ def poseoff_lk(frame1, frame2, poses, window_size=3, threshold=0.2, dilation=1):
 def draw_bones(frame, pose, person_num=None):
     frame = frame.copy()
     H,W,C = frame.shape
-    pose_local = pose.detach().clone()
+    if type(pose) == torch.Tensor:
+        pose_local = pose.detach().clone()
+    else:
+        pose_local = np.copy(pose)
     pose_local[:, 0] = pose_local[:, 0] * (W-1)
     pose_local[:, 1] = pose_local[:, 1] * (H-1)
     pose_local = rearrange(pose_local, '(M V) C -> M V C', M=2, V=17)
@@ -328,7 +331,10 @@ def draw_bones(frame, pose, person_num=None):
 def draw_skel(frame, pose, person_num=None, skip_points=[], debug=False):  # Poses shape: (M V) C
     frame = frame.copy()
     H,W,C = frame.shape
-    pose_local = pose.detach().clone()
+    if type(pose) == torch.Tensor:
+        pose_local = pose.detach().clone()
+    else:
+        pose_local = np.copy(pose)
     pose_local[:, 0] = pose_local[:, 0] * (W-1)
     pose_local[:, 1] = pose_local[:, 1] * (H-1)
     pose_local = rearrange(pose_local, '(M V) C -> M V C', M=2, V=17)
@@ -407,7 +413,7 @@ def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickne
         flow (np.array): Optical flow array (H x W x 2).
         step (int): Grid spacing in pixels — controls how many arrows are drawn.
         scale (float): Multiplier for arrow length (useful if flow magnitudes are tiny/huge).
-        color (tuple[int]): Arrow color as (B, G, R).
+        color (tuple[int]): Arrow color as (B, G, R) or (B, G, R, Alpha).
         thickness (int): Arrow line thickness in pixels.
 
     Returns:
@@ -435,7 +441,7 @@ def draw_flow_arrows(frame, flow, step=16, scale=1.0, color=(0, 255, 0), thickne
 
     # Draw each arrow
     for (x0, y0, x1, y1) in zip(xv.ravel(), yv.ravel(), x_end.ravel(), y_end.ravel()):
-        cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.3)
+        cv2.arrowedLine(out, (x0, y0), (x1, y1), color, thickness, tipLength=0.5)
 
     return out
 

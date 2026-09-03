@@ -1,4 +1,4 @@
-### Python template
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -88,6 +88,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.direnv/
 
 # Spyder project settings
 .spyderproject
@@ -105,30 +106,36 @@ venv.bak/
 # .skeleton files
 *.skeleton
 
-# Pytorch checkpoint files
+# ML model/checkpoint artifacts
 *.pt
+*.pth
+*.ckpt
+*.h5
+*.hdf5
+*.onnx
+*.tflite
+*.joblib
 
-# Numpy files
+# Arrays / serialized data
 *.npy
 *.npz
-
-# Pickle files
 *.pkl
 
-# NTU datafiles
-actors_info/
-
-# plots images (can always be regenerated)
-*/plots
-
-# Videos (can always be regenerated)
+# Generated media
+*.png
+*.jpg
+*.jpeg
 *.mp4
 *.avi
-*.webm
+*.gif
 
-# Images
-# NOTE: this might hinder future commits!
-*.png
+# Archives / bundles
+*.zip
+*.tar
+*.gz
+*.bz2
+*.xz
+*.7z
 
 # Emacs backups and files
 *~
@@ -136,3 +143,7 @@ actors_info/
 
 # Scratch files
 scratch*
+
+# Log and data directories
+logs/
+data/
